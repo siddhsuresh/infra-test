@@ -1,41 +1,21 @@
 terraform {
   required_version = ">= 1.6.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
 }
 
-provider "aws" {
-  region = var.aws_region
-
-  default_tags {
-    tags = {
-      Environment = var.environment
-      ManagedBy   = "terraform"
-    }
-  }
+resource "local_file" "test_file_1" {
+  filename = "${path.module}/test-output-1.txt"
+  content  = "test-value-1"
 }
 
-resource "aws_ssm_parameter" "test_param_1" {
-  name  = "/${var.environment}/test/param1"
-  type  = "String"
-  value = "test-value-1"
+resource "local_file" "test_file_2" {
+  filename = "${path.module}/test-output-2.txt"
+  content  = "test-value-2"
 }
 
-resource "aws_ssm_parameter" "test_param_2" {
-  name  = "/${var.environment}/test/param2"
-  type  = "String"
-  value = "test-value-2"
+output "file1_path" {
+  value = local_file.test_file_1.filename
 }
 
-output "param1_name" {
-  value = aws_ssm_parameter.test_param_1.name
-}
-
-output "param2_name" {
-  value = aws_ssm_parameter.test_param_2.name
+output "file2_path" {
+  value = local_file.test_file_2.filename
 }
