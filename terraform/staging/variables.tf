@@ -10,8 +10,18 @@ variable "environment" {
   default     = "staging"
 }
 
-variable "instance_count" {
-  description = "Number of instances to create"
-  type        = number
-  default     = 1
+variable "project_name" {
+  description = "Project name used for resource naming"
+  type        = string
+  default     = "infra-test"
+}
+
+variable "app_config" {
+  description = "Application configuration key-value pairs stored in SSM"
+  type        = map(string)
+  default = {
+    "log-level"   = "debug"
+    "api-version" = "v1"
+    "feature-x"   = "enabled"
+  }
 }
