@@ -11,6 +11,12 @@ terraform {
       version = "~> 3.0"
     }
   }
+  cloud { 
+    organization = "siddhsuresh_dev" 
+    workspaces {
+      name = "dev"
+    }
+  } 
 }
 
 provider "aws" {
