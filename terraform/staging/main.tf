@@ -43,7 +43,9 @@ resource "aws_s3_bucket" "app_data" {
   bucket = "${var.project_name}-${var.environment}-data-${random_id.bucket_suffix.hex}"
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-data"
+    Name        = "${var.project_name}-${var.environment}-data"
+    Description = "Application data storage bucket"
+    DataClass   = "internal"
   }
 }
 
@@ -62,6 +64,23 @@ resource "aws_s3_bucket_public_access_block" "app_data" {
   block_public_policy     = true
   ignore_public_acls      = true
   restrict_public_buckets = true
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "app_data" {
+  bucket = aws_s3_bucket.app_data.id
+
+  rule {
+    id     = "expire-old-versions"
+    status = "Enabled"
+
+    noncurrent_version_expiration {
+      noncurrent_days = 90
+    }
+
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
+    }
+  }
 }
 
 # ------------------------------------------------------------------------------
@@ -85,7 +104,8 @@ resource "aws_dynamodb_table" "app_state" {
   }
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-state"
+    Name        = "${var.project_name}-${var.environment}-state"
+    Description = "Application state storage table"
   }
 }
 
