@@ -11,12 +11,12 @@ terraform {
       version = "~> 3.0"
     }
   }
-  cloud { 
-    organization = "siddhsuresh_dev" 
+  cloud {
+    organization = "siddhsuresh_dev"
     workspaces {
       name = "dev"
     }
-  } 
+  }
 }
 
 provider "aws" {
@@ -145,6 +145,259 @@ resource "aws_ssm_parameter" "s3_bucket_name" {
 }
 
 # ------------------------------------------------------------------------------
+# VPC Module (Remote Module from Terraform Registry)
+# ------------------------------------------------------------------------------
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 5.0"
+
+  name = "${var.project_name}-${var.environment}-vpc"
+  cidr = var.vpc_cidr
+
+  azs             = var.availability_zones
+  private_subnets = [cidrsubnet(var.vpc_cidr, 8, 1), cidrsubnet(var.vpc_cidr, 8, 2)]
+  public_subnets  = [cidrsubnet(var.vpc_cidr, 8, 101), cidrsubnet(var.vpc_cidr, 8, 102)]
+
+  enable_nat_gateway   = true
+  single_nat_gateway   = true # Cost optimization for staging
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-vpc"
+  }
+}
+
+# ------------------------------------------------------------------------------
+# Security Group Module (Remote Module from Terraform Registry)
+# ------------------------------------------------------------------------------
+module "ecs_security_group" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "~> 5.0"
+
+  name        = "${var.project_name}-${var.environment}-ecs-sg"
+  description = "Security group for ECS tasks"
+  vpc_id      = module.vpc.vpc_id
+
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = var.container_port
+      to_port     = var.container_port
+      protocol    = "tcp"
+      description = "Container port"
+      cidr_blocks = var.vpc_cidr
+    }
+  ]
+
+  egress_with_cidr_blocks = [
+    {
+      from_port   = 0
+      to_port     = 0
+      protocol    = "-1"
+      description = "Allow all outbound"
+      cidr_blocks = "0.0.0.0/0"
+    }
+  ]
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-ecs-sg"
+  }
+}
+
+# ------------------------------------------------------------------------------
+# ECS Cluster
+# ------------------------------------------------------------------------------
+resource "aws_ecs_cluster" "main" {
+  name = "${var.project_name}-${var.environment}-cluster"
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-cluster"
+  }
+}
+
+resource "aws_ecs_cluster_capacity_providers" "main" {
+  cluster_name = aws_ecs_cluster.main.name
+
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
+
+  default_capacity_provider_strategy {
+    base              = 1
+    weight            = 100
+    capacity_provider = "FARGATE_SPOT" # Cost optimization for staging
+  }
+}
+
+# ------------------------------------------------------------------------------
+# IAM Roles for ECS Task
+# ------------------------------------------------------------------------------
+data "aws_iam_policy_document" "ecs_task_assume_role" {
+  statement {
+    actions = ["sts:AssumeRole"]
+
+    principals {
+      type        = "Service"
+      identifiers = ["ecs-tasks.amazonaws.com"]
+    }
+  }
+}
+
+# Task Execution Role - Used by ECS agent to pull images and write logs
+resource "aws_iam_role" "ecs_task_execution" {
+  name               = "${var.project_name}-${var.environment}-ecs-execution-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-ecs-execution-role"
+  }
+}
+
+resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
+  role       = aws_iam_role.ecs_task_execution.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+}
+
+# Task Role - Used by the application running in the container
+resource "aws_iam_role" "ecs_task" {
+  name               = "${var.project_name}-${var.environment}-ecs-task-role"
+  assume_role_policy = data.aws_iam_policy_document.ecs_task_assume_role.json
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-ecs-task-role"
+  }
+}
+
+# Policy allowing task to access S3 bucket and DynamoDB table
+data "aws_iam_policy_document" "ecs_task_policy" {
+  statement {
+    sid = "S3Access"
+    actions = [
+      "s3:GetObject",
+      "s3:PutObject",
+      "s3:ListBucket"
+    ]
+    resources = [
+      aws_s3_bucket.app_data.arn,
+      "${aws_s3_bucket.app_data.arn}/*"
+    ]
+  }
+
+  statement {
+    sid = "DynamoDBAccess"
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:Query",
+      "dynamodb:Scan"
+    ]
+    resources = [
+      aws_dynamodb_table.app_state.arn
+    ]
+  }
+
+  statement {
+    sid = "SSMParameterAccess"
+    actions = [
+      "ssm:GetParameter",
+      "ssm:GetParameters",
+      "ssm:GetParametersByPath"
+    ]
+    resources = [
+      "arn:aws:ssm:${var.aws_region}:*:parameter/${var.project_name}/${var.environment}/*"
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ecs_task" {
+  name   = "${var.project_name}-${var.environment}-ecs-task-policy"
+  role   = aws_iam_role.ecs_task.id
+  policy = data.aws_iam_policy_document.ecs_task_policy.json
+}
+
+# ------------------------------------------------------------------------------
+# CloudWatch Log Group for ECS
+# ------------------------------------------------------------------------------
+resource "aws_cloudwatch_log_group" "ecs" {
+  name              = "/ecs/${var.project_name}-${var.environment}"
+  retention_in_days = 14
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-ecs-logs"
+  }
+}
+
+# ------------------------------------------------------------------------------
+# ECS Task Definition
+# ------------------------------------------------------------------------------
+resource "aws_ecs_task_definition" "app" {
+  family                   = "${var.project_name}-${var.environment}-app"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = var.container_cpu
+  memory                   = var.container_memory
+  execution_role_arn       = aws_iam_role.ecs_task_execution.arn
+  task_role_arn            = aws_iam_role.ecs_task.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "app"
+      image     = var.container_image
+      essential = true
+
+      portMappings = [
+        {
+          containerPort = var.container_port
+          hostPort      = var.container_port
+          protocol      = "tcp"
+        }
+      ]
+
+      environment = [
+        {
+          name  = "ENVIRONMENT"
+          value = var.environment
+        },
+        {
+          name  = "S3_BUCKET"
+          value = aws_s3_bucket.app_data.id
+        },
+        {
+          name  = "DYNAMODB_TABLE"
+          value = aws_dynamodb_table.app_state.name
+        }
+      ]
+
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "app"
+        }
+      }
+
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:${var.container_port}/ || exit 1"]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
+      }
+    }
+  ])
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-app-task"
+  }
+}
+
+# ------------------------------------------------------------------------------
 # Outputs
 # ------------------------------------------------------------------------------
 output "s3_bucket_name" {
@@ -173,4 +426,46 @@ output "ssm_parameter_names" {
     [for k, v in aws_ssm_parameter.app_config : v.name],
     [aws_ssm_parameter.db_table_name.name, aws_ssm_parameter.s3_bucket_name.name]
   )
+}
+
+# VPC Outputs
+output "vpc_id" {
+  description = "ID of the VPC"
+  value       = module.vpc.vpc_id
+}
+
+output "private_subnet_ids" {
+  description = "IDs of private subnets"
+  value       = module.vpc.private_subnets
+}
+
+output "public_subnet_ids" {
+  description = "IDs of public subnets"
+  value       = module.vpc.public_subnets
+}
+
+# ECS Outputs
+output "ecs_cluster_id" {
+  description = "ID of the ECS cluster"
+  value       = aws_ecs_cluster.main.id
+}
+
+output "ecs_cluster_name" {
+  description = "Name of the ECS cluster"
+  value       = aws_ecs_cluster.main.name
+}
+
+output "ecs_task_definition_arn" {
+  description = "ARN of the ECS task definition"
+  value       = aws_ecs_task_definition.app.arn
+}
+
+output "ecs_task_definition_family" {
+  description = "Family of the ECS task definition"
+  value       = aws_ecs_task_definition.app.family
+}
+
+output "ecs_security_group_id" {
+  description = "ID of the ECS security group"
+  value       = module.ecs_security_group.security_group_id
 }
