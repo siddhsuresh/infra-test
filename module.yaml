@@ -1,0 +1,76 @@
+inputs:
+  - app_config:
+      type: json
+      label: App Config
+      description: Application configuration key-value pairs stored in SSM
+      default:
+        api-version: v1
+        feature-x: enabled
+        log-level: debug
+      validation:
+        required: true
+  - aws_region:
+      type: string
+      label: Aws Region
+      description: AWS region for resources
+      default: us-east-1
+      validation:
+        required: false
+  - container_cpu:
+      type: number
+      label: Container Cpu
+      description: CPU units for the container (1024 = 1 vCPU)
+      default: 256
+      validation:
+        required: false
+  - container_image:
+      type: string
+      label: Container Image
+      description: Docker image for the ECS task
+      default: nginx:latest
+      validation:
+        required: false
+  - container_memory:
+      type: number
+      label: Container Memory
+      description: Memory for the container in MB
+      default: 512
+      validation:
+        required: false
+  - container_port:
+      type: number
+      label: Container Port
+      description: Port the container listens on
+      default: 80
+      validation:
+        required: false
+  - environment:
+      type: string
+      label: Environment
+      description: Environment name
+      default: staging
+      validation:
+        required: false
+  - project_name:
+      type: string
+      label: Project Name
+      description: Project name used for resource naming
+      default: infra-test
+      validation:
+        required: false
+  - vpc_cidr:
+      type: string
+      label: Vpc Cidr
+      description: CIDR block for VPC
+      default: 10.0.0.0/16
+      validation:
+        required: false
+  - availability_zones:
+      type: string_array
+      label: Availability Zones
+      description: List of availability zones
+      default:
+        - us-east-1a
+        - us-east-1b
+      validation:
+        required: false
