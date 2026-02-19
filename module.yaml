@@ -32,4 +32,4 @@ inputs:
       description: CPU units for the container (1024 = 1 vCPU)
       default: 256
       validation:
-        required: false
+        required: true
