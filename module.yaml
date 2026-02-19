@@ -1,0 +1,35 @@
+inputs:
+  - app_config:
+      type: json
+      label: App Config
+      description: Application configuration key-value pairs stored in SSM
+      default:
+        api-version: v1
+        feature-x: enabled
+        log-level: debug
+      validation:
+        required: false
+  - availability_zones:
+      type: string_array
+      label: Availability Zones
+      description: List of availability zones
+      default:
+        - us-east-1a
+        - us-east-1b
+      validation:
+        required: false
+  - aws_region:
+      type: string
+      label: Aws Region
+      description: AWS region for resources
+      default: us-east-1
+      validation:
+        required: false
+        values: $values:aws/regions.select
+  - container_cpu:
+      type: number
+      label: Container Cpu
+      description: CPU units for the container (1024 = 1 vCPU)
+      default: 256
+      validation:
+        required: false
