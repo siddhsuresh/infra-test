@@ -10,7 +10,6 @@ inputs:
       required: false
   - availability_zones:
       type: string_array
-      label: Availability Zones
       description: List of availability zones
       default:
         - us-east-1a
